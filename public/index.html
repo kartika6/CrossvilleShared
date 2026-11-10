@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="crossville-session" content="__SESSION__">
+  <meta name="theme-color" content="#526ac8">
+  <title>CrossvilleShared — Your conversation, in context</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to workspace</a>
+  <div class="prototype-strip"><span><span class="status-dot"></span> Local prototype · fictional project data</span><span>No live team or personal chats connected</span></div>
+  <header class="app-header"><a class="brand" href="/" aria-label="CrossvilleShared home"><img src="/icon.svg" alt="" width="27" height="27"><span>Crossville<span class="brand-light">Shared</span></span></a><span class="tagline">Shared context, individual thinking</span><div class="header-right"><span class="member-stack" aria-label="Fictional research team"><span>A</span><span>S</span><span>P</span></span><span class="header-role">Your local workspace</span><span class="avatar you" aria-label="You">Y</span></div></header>
+  <div class="app-layout">
+    <aside class="sidebar"><div class="workspace-identity"><span class="workspace-mark">R</span><div><strong>Research workspace</strong><span>CrossvilleShared</span></div></div><div class="project-label">Project</div><div class="project-name"><span class="project-dot"></span>Shared Context Study</div><nav aria-label="Workspace"><button class="nav-item selected" data-view="connector"><svg viewBox="0 0 24 24"><path d="M8 8H5v8h3m8-8h3v8h-3M8 12h8"/></svg>My connector</button><button class="nav-item" data-view="context"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5m-18 5 9 5 9-5"/></svg>Team context<span id="nav-version" class="nav-count">v2</span></button><button class="nav-item" data-view="review"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 9h8m-8 4h5m-5 4h8"/></svg>Review inbox<span id="review-count" class="nav-count">0</span></button><button class="nav-item" data-view="activity"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2-5M4 3v5h5m3 0v5l3 2"/></svg>Activity</button></nav><div class="sidebar-bottom"><p>Your thinking.<br>Your space.</p><span>Choose what enters the shared project. Keep the rest in your conversation.</span><button class="text-button" data-view="connection">Connect to Codex <span aria-hidden="true">↗</span></button></div></aside>
+    <main id="main" tabindex="-1"><div class="main-topbar"><span id="view-label">My connector</span><span id="top-version">Team context v2</span></div><div id="page" class="page"><p class="loading-copy">Opening your workspace…</p></div></main>
+    <aside class="inspector" aria-label="Context inspector"><div class="inspector-title"><img src="/icon.svg" alt="" width="21" height="21"><strong>Crossville context</strong><span class="status-dot"></span></div><div id="inspector-content"></div></aside>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

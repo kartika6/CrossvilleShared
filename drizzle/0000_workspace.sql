@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS hosted_workspace (
+  id TEXT PRIMARY KEY NOT NULL,
+  data TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0
+);

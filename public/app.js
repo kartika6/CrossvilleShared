@@ -1,0 +1,156 @@
+const page = document.querySelector('#page');
+const token = document.querySelector('meta[name="crossville-session"]').content;
+const state = { view: 'connector', workspace: null, packet: null, draft: null, task: 'Plan a schedule for our pilot study.', mode: 'preview', busy: false, connection: null };
+const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+const arrow = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg>';
+const check = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
+
+async function api(path, input) {
+  const response = await fetch(path, input === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Crossville-Session': token }, body: JSON.stringify(input) });
+  const body = await response.json();
+  if (!response.ok) { const error = new Error(body.error || 'The connector could not finish this request.'); error.code = body.code; throw error; }
+  return body;
+}
+
+function toast(message) {
+  const element = document.querySelector('#toast'); element.textContent = message; element.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => { element.hidden = true; }, 4500);
+}
+
+async function refresh() {
+  state.workspace = await api('/api/workspace');
+  const version = `v${state.workspace.project.version}`;
+  document.querySelector('#nav-version').textContent = version;
+  document.querySelector('#top-version').textContent = `Team context ${version}`;
+  document.querySelector('#review-count').textContent = state.workspace.proposals.filter(item => item.status === 'pending').length;
+  renderInspector();
+}
+
+function renderInspector() {
+  const { project, capabilities } = state.workspace;
+  const hosted = state.workspace.mode === 'hosted_fictional';
+  const packet = state.packet;
+  const stale = packet && packet.projectVersion !== project.version;
+  document.querySelector('#inspector-content').innerHTML = `
+    <section class="inspector-section"><h2>${packet ? packet.status === 'ready' ? 'Context ready' : packet.status === 'cancelled' ? 'Preview cancelled' : 'Ready to review' : 'A shared starting point'}</h2><p>${packet ? 'A snapshot for your current task. Shared decisions stay in the team workspace.' : 'The latest approved direction, available to your own conversation.'}</p><div class="row"><span>Shared version</span><strong>v${project.version}</strong></div><div class="row"><span>Approved items</span><strong>${state.workspace.items.length}</strong></div>${packet ? `<div class="row"><span>This packet</span><strong class="${stale ? 'changed-version' : ''}">v${packet.projectVersion} · ${packet.items.length} items</strong></div>` : ''}${stale ? '<p class="changed-version">Team context changed. Prepare a fresh packet before continuing.</p>' : ''}</section>
+    <section class="inspector-section"><h3>Why this context?</h3><div class="rule-row">${check}<span>The project brief stays included.</span></div><div class="rule-row">${check}<span>Required constraints stay effective.</span></div><div class="rule-row">${check}<span>Task keywords select other items.</span></div><div class="rule-row">${check}<span>Pending ideas do not replace decisions.</span></div><p class="helper">Selection is deterministic. Semantic conflict analysis is not connected.</p></section>
+    <section class="inspector-section"><h3>Your connection</h3><div class="row"><span>Workspace</span><strong>${hosted ? 'Hosted fictional data' : 'Local fictional data'}</strong></div><div class="row"><span>Live team backend</span><strong>Not connected</strong></div><p>${esc(capabilities.model)}. This browser prepares the handoff; it does not generate an AI answer.</p><button class="text-button" data-view="connection">Set up the Codex connection ↗</button></section>
+    <div class="inspector-foot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10h12v10H6zM9 10V7a3 3 0 0 1 6 0v3"/></svg>Only submitted proposals enter the prototype review inbox. Full conversations are never read by this prototype.</div>`;
+}
+
+function flow() {
+  const step = !state.packet || state.packet.status === 'cancelled' ? 0 : state.packet.status === 'ready' ? 3 : 2;
+  return `<div class="flow" aria-label="Handoff progress">${['Your question', 'Team context', 'Your preview', 'Back to Codex'].map((label, index) => `${index ? '<span class="flow-line" aria-hidden="true"></span>' : ''}<span class="flow-step ${index <= step ? 'active' : ''}" ${index === step ? 'aria-current="step"' : ''}><span class="step-circle">${index + 1}</span><span>${label}</span></span>`).join('')}</div>`;
+}
+
+function itemRows(items, editable = false) {
+  return `<div class="context-list">${items.map(item => `<article class="context-row" data-item="${esc(item.id)}"><div class="context-kind">${esc(item.kind)} · revision ${item.revision}</div><div class="context-head">${editable ? `<input type="checkbox" class="item-select" aria-label="Include ${esc(item.title)}" value="${esc(item.id)}" checked ${item.required ? 'disabled' : ''}>` : ''}<h3>${esc(item.title)}</h3>${item.required || (item.kind === 'constraint' && item.strength === 'must') ? '<span class="pill">Required</span>' : item.localEdit ? '<span class="pill amber">Personal edit</span>' : '<span class="pill green">Approved</span>'}</div>${editable ? `<label class="sr-only" for="edit-${esc(item.id)}">Context wording for ${esc(item.title)}</label><textarea id="edit-${esc(item.id)}" class="item-text" data-id="${esc(item.id)}" ${item.required ? 'readonly' : ''}>${esc(item.text)}</textarea>${item.required ? '' : '<div class="local-edit-note" hidden>Edited for this task only. The approved team record will stay unchanged.</div>'}` : `<p>${esc(item.text)}</p>`}<details class="source-details"><summary>Source &amp; selection reason</summary><p>${esc(item.source.label)} · ${esc(item.source.author)}</p><p>${esc(item.relevance || 'Current approved shared context.')}</p>${item.localEdit ? `<p>Personal edit. Approved wording: ${esc(item.originalText)}</p>` : ''}</details></article>`).join('')}</div>`;
+}
+
+function connectorView() {
+  const packet = state.packet;
+  const active = packet && packet.status !== 'cancelled';
+  const awaiting = active && packet.status === 'awaiting_review';
+  const ready = active && packet.status === 'ready';
+  return `<h1>Your conversation,<br>in context.</h1><p class="page-intro">Bring the team’s latest decisions into the question you’re working on. Keep your individual thinking in your own conversation.</p>${flow()}
+    <form id="task-form" class="composer"><label class="field-label" for="task">What are you working on?</label><textarea id="task" name="task" maxlength="2000" required placeholder="Describe the task for your personal AI…">${esc(state.task)}</textarea><div class="composer-bottom"><label class="switch-label"><input id="preview-mode" type="checkbox" ${state.mode === 'preview' ? 'checked' : ''}>Preview and edit before use</label><button class="button" type="submit">${active ? 'Find fresh context' : 'Find team context'} ${arrow}</button></div></form><p class="helper">Uses approved fictional project context. ${state.workspace.mode === 'hosted_fictional' ? 'Your question is processed by this private prototype' : 'Your question is processed locally'}; no model is called here.</p><div id="inline-error" role="alert"></div>
+    ${!active ? `<div class="welcome-details"><div><h3>Automatic when you want it</h3><p>Turn off preview to prepare a packet directly. In Codex, the tool returns it into your conversation.</p></div><div><h3>Editable when you need it</h3><p>Inspect the sources, refine optional context, and add a personal note before continuing.</p></div></div><section class="section-heading"><div><h2>Already in your team context</h2><p>A common starting point, with a source for every item.</p></div><button class="text-button" data-view="context">View all</button></section>${itemRows(state.workspace.items.slice(0, 2))}` : ''}
+    ${awaiting ? `<section class="section-heading"><div><h2>Your context preview</h2><p>v${packet.projectVersion} · ${packet.items.length} selected items · edits apply to this handoff</p></div><span class="pill">Awaiting your review</span></section>${packet.changes.status === 'updated' ? `<div class="notice">Team context changed from v${packet.changes.fromVersion} to v${packet.changes.toVersion}. ${packet.changes.changed.length} selected item(s) changed.</div>` : ''}<form id="confirm-form">${itemRows(packet.items, true)}<div class="note-field"><label class="field-label" for="personal-note">A personal note for this task <span class="optional">(optional)</span></label><textarea id="personal-note" maxlength="2000" placeholder="For example: focus on the evaluation milestones."></textarea></div><div class="action-row"><button type="submit" class="button">Confirm context ${arrow}</button><button type="button" class="button secondary" id="cancel-preview">Cancel preview</button></div></form>` : ''}
+    ${ready ? `<div class="notice success"><strong>Ready for your conversation.</strong><p>This packet is finalized. A connected Codex chat can use the same tools directly; copying is optional. Preparation alone does not confirm that a model used it.</p></div><section class="section-heading"><div><h2>The context going with you</h2><p>v${packet.projectVersion} · ${packet.items.length} items · ${packet.items.some(item => item.localEdit) ? 'includes personal edits' : 'approved source wording'}</p></div><span class="pill green">Ready</span></section>${itemRows(packet.items)}${packet.personalNote ? `<div class="notice"><strong>Your personal task note</strong><p>${esc(packet.personalNote)}</p></div>` : ''}<div class="action-row"><button class="button" data-view="connection">Use from Codex ${arrow}</button><button class="button secondary" id="copy-handoff">Copy handoff</button><button class="button secondary" id="download-handoff">Download JSON</button></div><div id="copy-area"></div><details class="source-details"><summary>Inspect the exact handoff</summary><pre class="code">${esc(packet.text)}</pre></details>` : ''}
+    <section class="contribution-entry"><div><h3>Something worth sharing?</h3><p>Prepare a contribution. It becomes shared context only after review.</p></div><button class="button secondary" data-view="contribute">Prepare a proposal</button></section>`;
+}
+
+function contextView() {
+  return `<h1>A shared starting point.</h1><p class="page-intro">What the team has agreed, what must stay true, and what is still open. These records belong to the fictional prototype workspace.</p><div class="section-heading"><h2>Approved context</h2><span class="pill">Version ${state.workspace.project.version}</span></div>${itemRows(state.workspace.items)}<section class="contribution-entry"><div><h3>Have a different direction?</h3><p>Propose an addition or an explicit replacement.</p></div><button class="button secondary" data-view="contribute">Prepare a proposal</button></section>`;
+}
+
+function contributionView() {
+  const draft = state.draft;
+  return `<h1>A new thought for the team.</h1><p class="page-intro">Turn a selected insight into a focused contribution. Preview it here before it enters the prototype review inbox.</p><form id="proposal-form" class="form-panel"><div class="form-grid"><div class="form-field"><label class="field-label" for="proposal-kind">Category</label><select id="proposal-kind">${['brief', 'decision', 'constraint', 'question'].map(kind => `<option value="${kind}" ${kind === (draft?.kind || 'decision') ? 'selected' : ''}>${kind[0].toUpperCase() + kind.slice(1)}</option>`).join('')}</select></div><div class="form-field"><label class="field-label" for="proposal-target">How it changes the project</label><select id="proposal-target"><option value="">Add a new item</option>${state.workspace.items.map(item => `<option value="${esc(item.id)}" ${draft?.targetId === item.id ? 'selected' : ''}>Replace: ${esc(item.title)}</option>`).join('')}</select></div></div><div class="form-field"><label class="field-label" for="proposal-title">Title</label><input type="text" id="proposal-title" maxlength="160" required placeholder="For example: Run a one-week pilot" value="${esc(draft?.title || '')}"></div><div class="form-field"><label class="field-label" for="proposal-content">What should the team consider?</label><textarea id="proposal-content" required maxlength="4000" placeholder="Describe the idea and its rationale. Include only what you intend to share.">${esc(draft?.content || '')}</textarea></div><div class="form-field"><label class="field-label" for="proposal-source">Source note</label><input type="text" id="proposal-source" maxlength="1000" required value="${esc(draft?.sourceNote || 'A contribution I selected for this fictional project.')}" /></div><button class="button" type="submit">Preview contribution ${arrow}</button></form><div id="inline-error" role="alert"></div>
+    ${draft ? `<section class="section-heading"><div><h2>Review your contribution</h2><p>Private draft · based on team context v${draft.baseVersion}</p></div><span class="pill amber">Not submitted</span></section><div class="comparison"><strong>${esc(draft.comparison.explanation)}</strong>${draft.before ? `<p>Current: ${esc(draft.before.text)}</p>` : ''}<p>Proposed: ${esc(draft.content)}</p><p>Source note: ${esc(draft.sourceNote)}</p></div><p class="helper">If you edit the form above, preview it again before submitting. This submits only the exact previewed draft.</p><div class="action-row"><button class="button" id="submit-proposal">Submit this preview for review ${arrow}</button><button class="button secondary" id="discard-draft">Start another draft</button></div>` : '<p class="helper">No full conversation is imported. Category and replacement target are choices you make; semantic conflict detection is not connected.</p>'}`;
+}
+
+function reviewView() {
+  const proposals = [...state.workspace.proposals].reverse();
+  return `<h1>Make the next decision together.</h1><p class="page-intro">Proposals stay separate from approved context. These controls exercise a fictional research project. Real team membership is not configured.</p><div id="inline-error" role="alert"></div>${!proposals.length ? `<div class="empty-state"><h2>Nothing waiting for review.</h2><p>Prepare a contribution to try the full loop: propose, review, then retrieve the updated context.</p><button class="button secondary" data-view="contribute">Prepare a proposal</button></div>` : proposals.map(proposal => `<article class="proposal"><div class="proposal-top"><h2>${esc(proposal.title)}</h2><span class="pill ${proposal.status === 'pending' ? 'amber' : proposal.status === 'approved' ? 'green' : ''}">${esc(proposal.status)}</span></div><div class="context-kind">${esc(proposal.kind)} · ${proposal.targetId ? 'replacement' : 'new item'} · based on v${proposal.baseVersion}</div>${proposal.before ? `<div class="comparison"><strong>Current approved context</strong><p>${esc(proposal.before.text)}</p></div>` : ''}<p>${esc(proposal.content)}</p><div class="context-meta">${esc(proposal.sourceNote)}</div>${proposal.status === 'pending' ? `<div class="form-field"><label class="field-label" for="note-${esc(proposal.id)}">Review note (optional)</label><textarea class="proposal-note" maxlength="2000" id="note-${esc(proposal.id)}"></textarea></div><div class="action-row"><button class="button" data-review="approved" data-id="${esc(proposal.id)}">Approve change</button><button class="button secondary" data-review="rejected" data-id="${esc(proposal.id)}">Reject proposal</button></div>${proposal.baseVersion !== state.workspace.project.version ? '<div class="notice warning">The shared version changed. This proposal needs a fresh preview before approval. You can still reject it.</div>' : ''}` : `<p class="helper">${esc(proposal.reviewNote || 'No review note was added.')}</p>`}</article>`).join('')}`;
+}
+
+function activityView() {
+  return `<h1>Context, with a history.</h1><p class="page-intro">A record of the decisions and handoffs in this local workspace. “Prepared” means a packet exists; it does not mean an LLM used it.</p>${state.workspace.events.map(event => `<article class="event"><span class="event-mark" aria-hidden="true"></span><div><p>${esc(event.summary)}</p><time datetime="${esc(event.at)}">${esc(new Date(event.at).toLocaleString())} · v${event.version}</time></div></article>`).join('')}`;
+}
+
+function connectionView() {
+  if (state.connection?.hosted) return `<h1>Connect your own Codex.</h1><p class="page-intro">The source includes a real local MCP server that returns context directly into a Codex conversation.</p><div class="notice"><strong>Two separate test workspaces.</strong><p>${esc(state.connection.message)}</p></div><ol class="connection-steps"><li><strong>Get the project source</strong>Open your private <a href="https://github.com/kartika6/CrossvilleShared" target="_blank" rel="noopener noreferrer">CrossvilleShared GitHub repository</a> and follow its setup guide.</li><li><strong>Start the local preview</strong>Run npm install and npm start in your local project.</li><li><strong>Add the MCP connection</strong>The local preview shows the exact Node command and server path for your computer.</li></ol><p class="helper">The hosted preview does not run a model or access personal conversations. Linking the local MCP server to a shared hosted backend requires member-scoped authentication.</p><button class="button secondary" data-view="connector">Back to my connector</button>`;
+  return `<h1>Keep the loop in Codex.</h1><p class="page-intro">Connect the real MCP server to your Codex chat. Tool results return directly to that conversation, using the same local context store as this preview.</p><div class="notice"><strong>Ready to connect locally.</strong><p>The MCP server is implemented. Installing it in Codex is a separate setup step. The live Crossville team backend is not connected.</p></div><ol class="connection-steps"><li><strong>Add a local MCP server</strong>In Codex’s MCP settings, add a STDIO server using the command and arguments below.</li><li><strong>Choose this fictional project</strong>Start with the sample prompt. The tool retrieves approved context; Codex supplies the actual answer.</li><li><strong>Try a reviewed update</strong>Propose and approve a change in the local review inbox. Ask Codex again to retrieve the new version.</li></ol>${state.connection ? `<label class="field-label">Command</label><pre class="code">${esc(state.connection.command)}</pre><label class="field-label">Arguments</label><pre class="code">${esc(JSON.stringify(state.connection.args))}</pre><details class="source-details"><summary>Configuration snippet</summary><pre class="code">${esc(state.connection.config)}</pre></details>` : '<p class="loading-copy">Loading connection details…</p>'}<div class="section-heading"><h2>A first prompt to try</h2></div><pre class="code">Use CrossvilleShared to get the current team context for planning our pilot schedule, in auto mode. Then make the schedule using that context. Name the context version and the approved duration you used.</pre><p class="helper">For an editable preview, request preview mode instead. Codex should show the packet and wait for your explicit confirmation. Tool instructions guide this behavior; they are not a guarantee that every future answer checks context.</p><div class="action-row"><button class="button secondary" data-view="connector">Back to my connector</button></div>`;
+}
+
+function render() {
+  document.querySelectorAll('.nav-item').forEach(button => button.classList.toggle('selected', button.dataset.view === state.view));
+  document.querySelector('#view-label').textContent = ({ connector: 'My connector', context: 'Team context', review: 'Review inbox', activity: 'Activity', contribute: 'Prepare a contribution', connection: 'Connect to Codex' })[state.view];
+  const views = { connector: connectorView, context: contextView, contribute: contributionView, review: reviewView, activity: activityView, connection: connectionView };
+  page.innerHTML = views[state.view](); page.classList.remove('page-enter'); requestAnimationFrame(() => page.classList.add('page-enter'));
+  renderInspector(); bindPage();
+}
+
+function showError(error) {
+  const holder = document.querySelector('#inline-error');
+  if (!holder) return toast(error.message);
+  holder.replaceChildren(); const box = document.createElement('div'); box.className = 'notice error'; box.textContent = error.message;
+  if (error.code === 'STALE_CONTEXT') { const button = document.createElement('button'); button.className = 'button secondary'; button.textContent = 'Review latest context'; button.onclick = async () => { await refresh(); if (state.view === 'connector') await prepareTask(); else { state.view = 'contribute'; state.draft = null; render(); } }; box.append(document.createElement('br'), button); }
+  holder.append(box); box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function action(button, operation) {
+  if (state.busy) return;
+  state.busy = true; if (button) button.disabled = true;
+  try { await operation(); } catch (error) { showError(error); }
+  finally { state.busy = false; if (button?.isConnected) button.disabled = false; }
+}
+
+async function prepareTask() {
+  const task = document.querySelector('#task');
+  if (task) state.task = task.value;
+  const mode = document.querySelector('#preview-mode'); if (mode) state.mode = mode.checked ? 'preview' : 'auto';
+  state.packet = await api('/api/handoffs', { task: state.task, mode: state.mode, knownVersion: state.packet?.projectVersion });
+  await refresh(); render();
+  document.querySelector('#confirm-form, .notice.success')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function bindPage() {
+  document.querySelector('#task-form')?.addEventListener('submit', event => { event.preventDefault(); action(event.submitter, prepareTask); });
+  document.querySelector('#confirm-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    action(event.submitter, async () => {
+      const selectedIds = [...document.querySelectorAll('.item-select:checked')].map(input => input.value);
+      const edits = {};
+      for (const textarea of document.querySelectorAll('.item-text')) if (selectedIds.includes(textarea.dataset.id) && textarea.value !== state.packet.items.find(item => item.id === textarea.dataset.id).text) edits[textarea.dataset.id] = textarea.value;
+      state.packet = await api('/api/handoffs/confirm', { packetId: state.packet.id, selectedIds, edits, personalNote: document.querySelector('#personal-note').value });
+      await refresh(); render(); toast('Your reviewed context is ready. Shared decisions are unchanged.');
+    });
+  });
+  document.querySelectorAll('.item-select').forEach(input => input.onchange = () => { const row = input.closest('.context-row'); row.classList.toggle('excluded', !input.checked); row.querySelector('textarea').disabled = !input.checked; });
+  document.querySelectorAll('.item-text:not([readonly])').forEach(input => input.oninput = () => { input.closest('.context-row').querySelector('.local-edit-note').hidden = input.value === state.packet.items.find(item => item.id === input.dataset.id).text; });
+  document.querySelector('#cancel-preview')?.addEventListener('click', event => action(event.currentTarget, async () => { await api('/api/handoffs/cancel', { packetId: state.packet.id }); state.packet = null; await refresh(); render(); toast('Preview cancelled. No team context changed.'); }));
+  document.querySelector('#copy-handoff')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(state.packet.text); toast('Reviewed handoff copied. Paste it into your chosen conversation.'); }
+    catch { const area = document.createElement('textarea'); area.className = 'copy-fallback'; area.readOnly = true; area.value = state.packet.text; area.setAttribute('aria-label', 'Select and copy the reviewed handoff'); document.querySelector('#copy-area').replaceChildren(area); area.focus(); area.select(); toast('Select and copy the handoff below.'); }
+  });
+  document.querySelector('#download-handoff')?.addEventListener('click', () => { const url = URL.createObjectURL(new Blob([JSON.stringify(state.packet, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = `crossville-context-v${state.packet.projectVersion}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
+  document.querySelector('#proposal-target')?.addEventListener('change', event => { const target = state.workspace.items.find(item => item.id === event.target.value); if (target) document.querySelector('#proposal-kind').value = target.kind; });
+  document.querySelector('#proposal-form')?.addEventListener('input', () => { const button = document.querySelector('#submit-proposal'); if (button) { button.disabled = true; button.textContent = 'Preview your changes before submitting'; } });
+  document.querySelector('#proposal-form')?.addEventListener('submit', event => { event.preventDefault(); action(event.submitter, async () => { state.draft = await api('/api/proposals/prepare', { title: document.querySelector('#proposal-title').value, content: document.querySelector('#proposal-content').value, kind: document.querySelector('#proposal-kind').value, targetId: document.querySelector('#proposal-target').value || null, sourceNote: document.querySelector('#proposal-source').value }); render(); document.querySelector('.comparison')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }); });
+  document.querySelector('#submit-proposal')?.addEventListener('click', event => action(event.currentTarget, async () => { await api('/api/proposals/submit', { draftId: state.draft.id, confirmed: true }); state.draft = null; state.view = 'review'; await refresh(); render(); toast('Proposal submitted. It is pending reviewer approval.'); }));
+  document.querySelector('#discard-draft')?.addEventListener('click', () => { state.draft = null; render(); });
+  document.querySelectorAll('[data-review]').forEach(button => button.onclick = () => action(button, async () => { await api('/api/proposals/review', { proposalId: button.dataset.id, outcome: button.dataset.review, note: document.querySelector(`#note-${CSS.escape(button.dataset.id)}`).value }); await refresh(); render(); toast(button.dataset.review === 'approved' ? `Change approved. Team context is now v${state.workspace.project.version}.` : 'Proposal rejected. Approved context is unchanged.'); }));
+}
+
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-view]'); if (!button) return;
+  if (state.busy) return;
+  const task = document.querySelector('#task'); if (task) state.task = task.value;
+  state.view = button.dataset.view;
+  try { await refresh(); if (state.view === 'connection') state.connection = await api('/api/connection'); render(); document.querySelector('#main').focus({ preventScroll: true }); } catch (error) { toast(error.message); }
+});
+
+try { await refresh(); render(); }
+catch (error) { page.innerHTML = `<div class="notice error"><h1>Let’s reconnect.</h1><p>${esc(error.message)}</p><button class="button secondary" id="retry">Try again</button></div>`; document.querySelector('#retry').onclick = () => location.reload(); }
