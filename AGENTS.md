@@ -1,6 +1,6 @@
 # Working on CrossvilleShared
 
-This is a separate local prototype. Read PRODUCT.md, DESIGN.md and README.md before changing behavior or presentation.
+This is a separate hosted team prototype with isolated local development demos. Read PRODUCT.md, DESIGN.md and README.md before changing behavior or presentation.
 
 - Keep UI, domain/service rules, storage and MCP transport separate. JavaScript is the current confirmed stack; avoid a framework migration without a task that calls for it.
 - Do not describe fictional fixtures as real team data, deterministic keyword selection as semantic AI retrieval, or prepared packets as verified model use.

@@ -3,8 +3,8 @@ import { AppError, changesSince, currentItems, digest, ensureVersion, formatHand
 const localActor = { id: 'local-researcher', name: 'You', role: 'owner' };
 
 export class ContextService {
-  constructor(store, actor = localActor) { this.store = store; this.actor = actor; }
-  requireWrite() { if (!['owner', 'editor'].includes(this.actor.role)) throw new AppError('This connection can read context but cannot create proposals.', 'FORBIDDEN', 403); }
+  constructor(store, actor = localActor, { hosted = false } = {}) { this.store = store; this.actor = actor; this.hosted = hosted; }
+  requireWrite() { if (!['owner', 'reviewer', 'editor'].includes(this.actor.role)) throw new AppError('This connection can read context but cannot create proposals.', 'FORBIDDEN', 403); }
   project(state, projectId) { if (projectId && projectId !== state.project.id) throw new AppError('Project is not available to this connection.', 'NOT_FOUND', 404); }
   event(state, type, summary, details = {}) {
     state.events.unshift({ id: id(), type, summary, at: new Date().toISOString(), version: state.project.version, actorId: this.actor.id, ...details });
@@ -18,12 +18,12 @@ export class ContextService {
   workspace() {
     const state = this.store.read();
     return {
-      mode: 'local_fictional', liveConnected: false, project: state.project, actor: this.actor,
+      mode: this.hosted ? 'hosted_team' : 'local_fictional', liveConnected: this.hosted, project: state.project, actor: this.actor,
       items: currentItems(state), proposals: state.proposals,
       handoffs: state.handoffs.filter(packet => packet.actorId === this.actor.id).slice(-20).reverse(),
       drafts: state.drafts.filter(draft => draft.actorId === this.actor.id && !draft.submittedId),
       events: state.events.filter(event => !event.private || event.actorId === this.actor.id).slice(0, 50),
-      capabilities: { model: 'Provided by your connected Codex chat', retrieval: 'Deterministic task keywords + required context', sharedBackend: 'Local fictional workspace', approval: 'Local reviewer controls; no production identity verification' }
+      capabilities: { model: 'Provided by your connected Codex chat', retrieval: 'Deterministic task keywords + required context', sharedBackend: this.hosted ? 'Shared hosted project' : 'Local fictional workspace', approval: this.hosted ? 'Project owner or reviewer; server-checked membership' : 'Local reviewer controls; no production identity verification' }
     };
   }
 
@@ -33,7 +33,7 @@ export class ContextService {
     return this.store.transaction(state => {
       this.project(state, projectId);
       const items = retrieve(state, task);
-      const packet = { id: id(), actorId: this.actor.id, projectId: state.project.id, projectName: state.project.name, projectVersion: state.project.version, mode, status: mode === 'auto' ? 'ready' : 'awaiting_review', task, createdAt: new Date().toISOString(), items, personalNote: '', changes: changesSince(state, knownVersion, items), selectionMethod: 'task_keywords_and_required_context', excludedCount: state.items.length - items.length, scope: 'selected_project_items', simulatedData: true };
+      const packet = { id: id(), actorId: this.actor.id, projectId: state.project.id, projectName: state.project.name, projectVersion: state.project.version, mode, status: mode === 'auto' ? 'ready' : 'awaiting_review', task, createdAt: new Date().toISOString(), items, personalNote: '', changes: changesSince(state, knownVersion, items), selectionMethod: 'task_keywords_and_required_context', excludedCount: state.items.length - items.length, scope: 'selected_project_items', simulatedData: state.project.demo !== false };
       packet.digest = digest({ version: packet.projectVersion, items: packet.items, task, personalNote: '' });
       packet.text = formatHandoff(packet);
       state.handoffs.push(packet);
@@ -87,7 +87,7 @@ export class ContextService {
       const target = targetId ? currentItems(state).find(item => item.id === targetId) : null;
       if (targetId && !target) throw new AppError('The context item to replace is no longer current.', 'STALE_CONTEXT', 409);
       if (target && target.kind !== kind) throw new AppError('A replacement must keep the existing item category.');
-      const draft = { id: id(), actorId: this.actor.id, title, content, kind, targetId, sourceNote, projectId: state.project.id, baseVersion: state.project.version, createdAt: new Date().toISOString(), status: 'private_draft', before: target ? { id: target.id, title: target.title, text: target.text, revision: target.revision } : null, comparison: target ? { relation: target.text === content ? 'unchanged' : 'proposed_replacement', explanation: target.text === content ? 'This matches the approved wording.' : 'This explicitly targets an approved item. A reviewer must decide whether it should replace it.' } : { relation: 'new_item', explanation: 'No replacement target was selected. This is a new proposal; semantic conflict analysis is not connected.' } };
+      const draft = { id: id(), actorId: this.actor.id, author: this.actor.name, title, content, kind, targetId, sourceNote, projectId: state.project.id, baseVersion: state.project.version, createdAt: new Date().toISOString(), status: 'private_draft', before: target ? { id: target.id, title: target.title, text: target.text, revision: target.revision } : null, comparison: target ? { relation: target.text === content ? 'unchanged' : 'proposed_replacement', explanation: target.text === content ? 'This matches the approved wording.' : 'This explicitly targets an approved item. A reviewer must decide whether it should replace it.' } : { relation: 'new_item', explanation: 'No replacement target was selected. This is a new proposal; semantic conflict analysis is not connected.' } };
       state.drafts.push(draft);
       return draft;
     });
@@ -109,7 +109,7 @@ export class ContextService {
   }
 
   reviewProposal({ proposalId, outcome, note = '' } = {}) {
-    if (this.actor.role !== 'owner') throw new AppError('Only the local reviewer can approve a proposal.', 'FORBIDDEN', 403);
+    if (!['owner', 'reviewer'].includes(this.actor.role)) throw new AppError('Only a project owner or reviewer can review proposals.', 'FORBIDDEN', 403);
     if (!['approved', 'rejected'].includes(outcome)) throw new AppError('Choose approve or reject.');
     if (typeof note !== 'string' || note.length > 2000) throw new AppError('Review note must be no longer than 2,000 characters.');
     return this.store.transaction(state => {
@@ -120,11 +120,12 @@ export class ContextService {
         ensureVersion(state, proposal.baseVersion);
         const target = proposal.targetId ? currentItems(state).find(item => item.id === proposal.targetId) : null;
         if (proposal.targetId && (!target || target.revision !== proposal.before.revision || target.text !== proposal.before.text)) throw new AppError('The replacement target changed. Prepare a new proposal.', 'STALE_CONTEXT', 409);
+        const source = { author: proposal.author || proposal.actorId, reviewer: this.actor.name, label: `Reviewed proposal ${proposal.id.slice(0, 8)}`, type: 'reviewed_proposal', proposalId: proposal.id, note: proposal.sourceNote };
         if (target) {
           state.items.push({ ...structuredClone(target), id: `${target.id}-history-${id()}`, status: 'superseded' });
           target.title = proposal.title; target.text = proposal.content; target.revision++;
-          target.source = { author: 'Local reviewer', label: `Reviewed fictional proposal ${proposal.id.slice(0, 8)}`, type: 'local_reviewed_proposal', proposalId: proposal.id };
-        } else state.items.push({ id: id(), title: proposal.title, text: proposal.content, kind: proposal.kind, claimKey: `local.${id()}`, strength: 'default', status: 'approved', revision: 1, tags: proposal.content.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu)?.slice(0, 30) || [], source: { author: 'Local reviewer', label: 'Reviewed fictional proposal', type: 'local_reviewed_proposal', proposalId: proposal.id } });
+          target.source = source;
+        } else state.items.push({ id: id(), title: proposal.title, text: proposal.content, kind: proposal.kind, claimKey: `proposal.${id()}`, strength: 'default', status: 'approved', revision: 1, tags: proposal.content.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu)?.slice(0, 30) || [], source });
         state.project.version++;
         state.snapshots.push({ version: state.project.version, items: structuredClone(currentItems(state)) });
       }

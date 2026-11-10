@@ -2,7 +2,7 @@ export function createFixture() {
   const source = (author, label) => ({ author, label, type: 'fictional_shared_record' });
   return {
     schemaVersion: 1,
-    project: { id: 'shared-context-study', name: 'Shared Context Study', version: 2 },
+    project: { id: 'shared-context-study', name: 'Shared Context Study', version: 2, demo: true },
     items: [
       { id: 'project-goal', kind: 'brief', title: 'One shared context. Individual thinking.', text: 'Study how a small research team keeps separate AI conversations aligned with reviewed project decisions.', claimKey: 'project.goal', strength: 'default', status: 'approved', revision: 1, tags: ['research', 'team', 'project', 'study'], source: source('Alex', 'Fictional project brief') },
       { id: 'pilot-duration', kind: 'decision', title: 'Run a two-week pilot', text: 'The approved pilot lasts two weeks (14 days). Use this duration when making the study schedule.', claimKey: 'pilot.duration', strength: 'default', status: 'approved', revision: 2, tags: ['pilot', 'schedule', 'plan', 'timeline', 'duration', 'week', 'study'], source: source('Sam', 'Fictional reviewer decision') },

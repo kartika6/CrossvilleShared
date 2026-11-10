@@ -1,140 +1,133 @@
 # CrossvilleShared
 
-A separate JavaScript prototype for the loop **personal Codex conversation → connector → reviewed team context → same Codex conversation**.
+A working team prototype for **personal LLM chat → connector → reviewed project context → the same chat**. The hosted website and MCP endpoint use one Cloudflare D1 database. Codex or ChatGPT supplies the model; this site does not generate or simulate an LLM answer.
 
-The MCP server and browser preview use the same local SQLite store. Codex supplies the real LLM response; the browser prepares and inspects context, without pretending to run a model.
+- [Private hosted prototype](https://crossvilleshared.kartika-pinjarkar48.chatgpt.site)
+- [Collaboration branch](https://github.com/kartika6/CrossvilleShared/tree/feature/team-collaboration)
 
-## Hosted preview and source
+## Start the pilot
 
-- Private hosted preview: https://crossvilleshared.kartika-pinjarkar48.chatgpt.site
-- Private source repository: https://github.com/kartika6/CrossvilleShared
+1. Open the private Site using its owner account. Create a project with a goal, or choose **Create a Crossville sample** to use clearly labeled fictional Crossville data.
+2. Open **Team & access**. Create an invitation using the teammate’s exact ChatGPT sign-in email and choose Contributor, Reviewer or Viewer. No email is sent; copy the invitation link yourself.
+3. Grant that email access in the **Site’s Share settings**. This is a separate platform gate; a project invitation cannot bypass it. The Site’s audience is preserved on publication. No colleagues have been added automatically.
+4. The teammate opens the link, signs in with the invited account and accepts. They now see the same project and context versions.
+5. For LLM access, install/connect the personal **CrossvilleShared plugin created by Sites**. Each teammate needs plugin access, Site access and project membership. The owner may need to share the personal plugin separately through its platform controls. A raw MCP URL does not grant access.
 
-The hosted preview uses persistent Cloudflare D1 storage behind Sites sign-in. Its fictional workspace is separate from the local MCP server’s SQLite workspace; they are not synchronized. The live team backend remains a separate integration.
+The owner Site account is `kartika.pinjarkar48@gmail.com`. If another signed-in account gets an access page, switch to the owner account or explicitly grant that account Site access. Application roles do not override the platform’s access gate.
 
-## Run the preview
+Teammate email addresses can be supplied later. The joining and role controls are implemented without inviting real people during development.
+
+## Use the connector
+
+The hosted MCP endpoint is `https://crossvilleshared.kartika-pinjarkar48.chatgpt.site/mcp`. Use the Sites-created plugin for authenticated access; no local Node process or global Codex MCP configuration is needed for this hosted path.
+
+Try in a chat with the plugin connected:
+
+> Use CrossvilleShared list_projects. Get the latest get_team_context for my project ID and the task “Plan our pilot schedule”, in auto mode. Answer using the approved context and state its version.
+
+For an editable preview:
+
+> Get CrossvilleShared context in preview mode. Show the selected items and sources, and wait for my explicit edits or confirmation before calling confirm_handoff or answering from the packet.
+
+The tools return context directly to the calling LLM. Copying or downloading is an optional fallback. Tool instructions guide the host, but cannot force a retrieval before every answer. Open or cold chats catch up on their next retrieval; there is no background push into every conversation. The browser’s Refresh button loads the latest context without calling a model.
+
+| Tool | Behavior |
+| --- | --- |
+| `list_projects` | Lists only the signed-in caller’s projects and roles (hosted only) |
+| `get_team_context` | Retrieves approved context by task keywords plus the required brief/constraints; auto return or editable preview |
+| `confirm_handoff` | Finalizes the caller’s preview with permitted personal edits and a personal task note |
+| `cancel_handoff` | Cancels the caller’s open preview |
+| `list_team_context` | Lists approved records and shared proposals for choosing a replacement target |
+| `prepare_proposal` | Creates an attributed private draft with an optional explicit replacement target |
+| `submit_proposal` | Submits the exact draft after human confirmation; repeated submission returns the same proposal |
+
+Every hosted context tool accepts `project_id`. It is required when the caller belongs to more than one project. Approval remains a separate human action in the website’s Review inbox.
+
+## Roles and precedence
+
+| Role | Read / retrieve | Propose | Review | Manage team |
+| --- | --- | --- | --- | --- |
+| Viewer | Yes | No | No | No |
+| Contributor (`editor`) | Yes | Yes | No | No |
+| Reviewer | Yes | Yes | Yes | No |
+| Owner | Yes | Yes | Yes | Yes |
+
+At least one owner must remain. Membership and roles come from the backend, never an editable browser field. Invitations expire after seven days and are bound to the verified email, not just possession of the URL. Removing a member blocks further project access and invalidates their unused invitations.
+
+Approved context is effective. Pending proposals cannot override it. An explicit reviewed replacement supersedes the targeted item and advances the shared version. Required brief/constraints remain included and cannot be rewritten in a personal preview. Optional packet edits stay personal. This is a simple inspectable precedence model; semantic conflict detection is not connected.
+
+## Database setup
+
+Sites provisions D1 from `.openai/hosting.json` (`d1: DB`) and applies append-only SQL migrations in `drizzle/` during publication. No database credentials are embedded in the browser or repository.
+
+| Table | Stores |
+| --- | --- |
+| `cv_projects` | Project identity and membership revision |
+| `cv_members` | Project-scoped signed-in users and roles |
+| `cv_invitations` | Email-bound invitations, expiry, acceptance and revocation |
+| `cv_user_settings` | Active project and per-account browser write token |
+| `hosted_workspace` | One versioned JSON document per project: approved items, proposals, snapshots, personal packets, drafts and events |
+
+Private drafts, packet tasks and handoff history are filtered to their creator. Shared proposals become visible on submission. The server checks project membership for all data access and uses compare-and-swap state and access revisions to reject concurrent/stale writes. The JSON-per-project design suits a small pilot; larger-scale use should normalize high-volume event and draft storage.
+
+The earlier hosted fictional row is retained; it is not silently imported into a real project or deleted. New projects start from the owner’s goal. Sample projects are explicitly labeled fictional. This prototype does not read full chat histories or connect to Leyi’s separate Crossville deployment.
+
+## Local development
 
 Requires Node.js 24 or later.
 
 ```sh
 npm install
-npm start
+npm run preview:team
 ```
 
-Open [CrossvilleShared locally](http://127.0.0.1:4317). Keep the terminal running. Stop with Ctrl+C. To use a different port, set `CROSSVILLE_PORT` when starting the server.
+Open http://127.0.0.1:4318. This runs the built Worker with a local SQLite D1 adapter and **fictional test identities**. The top QA bar switches between an owner, colleague and professor. Use `colleague@example.test` or `professor@example.test` for local invitation tests. No messages are sent and no hosted data is accessed. Data stays in ignored `.data/team-preview.sqlite`. The QA identity switch lives only in this loopback development script; it is never bundled into the published Worker.
 
-The workspace is fictional, local and single-user. Alex, Sam and Professor are sample attributions. The reviewer controls exercise local application rules, not real multi-account authentication. This does not change Leyi's site, team data, existing chats or hosting permissions.
+The original single-user local demo is still available with `npm start` at http://127.0.0.1:4317. Its local STDIO MCP server (`npm run mcp`) shares `.data/workspace.sqlite` with that demo. **Those local stores are separate from hosted D1.** The hosted team connection uses the personal plugin instead.
 
-## Connect Codex
-
-In Codex MCP settings add a local **STDIO** server named `crossville_shared`:
-
-- Command: the absolute path to your Node.js executable (`command -v node`).
-- Arguments: the absolute path to this project's `src/mcp-server.js`, as one argument.
-
-The preview's **Connect to Codex** page shows the exact values for this machine. The server is started by Codex; the browser server does not have to be running for the MCP tools to work.
-
-Alternatively, from this project directory:
+Local STDIO setup, if deliberately testing that separate demo:
 
 ```sh
 codex mcp add crossville_shared -- node "$(pwd)/src/mcp-server.js"
 ```
 
-This command registers the server persistently in Codex configuration. It is provided for you to run; this project has not changed your global MCP configuration. Reconnect/restart the host as its settings require, then check that the tools are available.
-
-Try this in a connected chat:
-
-> Use CrossvilleShared to get the current team context for planning our pilot schedule, in auto mode. Then make the schedule using that context. Name the context version and approved duration you used.
-
-For a preview:
-
-> Get the current CrossvilleShared context in preview mode. Show me the selected items and sources, and wait for my edits or confirmation before using the packet to answer.
-
-The host calls the tool and receives its result in that same conversation. Copy/download remain optional fallbacks. Tool instructions recommend checking current context, but they do not guarantee a tool call before every future answer. A cold chat catches up on its next retrieval; there is no background push into every chat.
-
-## Tools
-
-| Tool | Behavior |
-| --- | --- |
-| `get_team_context` | Retrieves current approved context using task keywords plus required brief/constraints; returns directly or prepares a preview |
-| `confirm_handoff` | Finalizes a human-reviewed preview, selected items, permitted personal edits and a personal task note |
-| `cancel_handoff` | Cancels an open preview |
-| `list_team_context` | Lists approved shared records and proposals for choosing a replacement target |
-| `prepare_proposal` | Stores an editable private draft; an explicit target produces a before/after comparison |
-| `submit_proposal` | Submits an exact draft after confirmation; repeating that draft returns the same proposal |
-
-Reviewer approval is deliberately separate from the MCP contribution tools. Use the browser's **Review inbox** to exercise approval/rejection in the fictional workspace.
-
-## Try the loop
-
-1. Retrieve a pilot schedule packet. A newly created database begins at v2 with a two-week decision.
-2. In preview mode, edit an optional context item or add a personal note; confirm it. Team records do not change. Required context cannot be removed or rewritten here.
-3. Prepare a proposal that replaces the pilot duration with one week. Review the exact before/after and submit it. It remains pending.
-4. In the local review inbox, approve it. Context advances to the next version. Prior packets stay historical snapshots, and open stale previews cannot be confirmed.
-5. Retrieve again in Codex. The same tools return the new approved duration. Pass `known_version` to inspect differences from a previous version.
-
-The development walkthrough has already exercised v2 → v3 in the default local database, so your first opening may show the approved one-week decision and that history. Tests use disposable, separate databases.
+This example registers a persistent local connection if you run it. Development has not changed your global MCP configuration.
 
 ## Verification
 
 ```sh
 npm test
 npm run check
-npm run demo
 ```
 
-The tests cover MCP discovery/calls, the built hosted Worker with identity and D1 storage, browser API routes, stale versions, mandatory context, personal-edit isolation, draft ownership, reviewer roles, idempotent submission and SQLite persistence. `npm run demo` exercises the version-change loop in memory without changing your preview data.
+Tests use disposable databases. They cover real MCP STDIO and HTTP clients, authenticated hosted routes, project isolation, invitation email matching/expiry/revocation, role enforcement, private draft/packet ownership, last-owner protection, stale context and concurrent access changes, and website proposal → reviewer approval → MCP retrieval from the same database.
 
-An actual Codex check was performed with isolated fictional data. Codex called `get_team_context` and answered with v2, the approved two-week/14-day duration, and the fictional-data constraint. It did not use a copied packet or read real team data. The raw event record is saved locally under `artifacts/codex-smoke.jsonl`.
+Browser QA exercised separate fictional accounts joining and proposing, owner review advancing v2 → v3, and desktop/mobile layout. Real colleague onboarding and their personal plugin access remain to be checked after the owner supplies their emails. The local browser’s current signed-in account may differ from the Site owner; this does not justify widening access automatically.
 
-To repeat the actual-model check, which uses your Codex allowance:
+An actual Codex model call was previously verified against the isolated local STDIO demo, not the hosted team project. `node scripts/verify-codex.js` repeats that check using Codex allowance and disposable fictional data. No additional model calls are required for ordinary UI changes.
 
-```sh
-node scripts/verify-codex.js
-```
-
-By default it uses the Codex CLI bundled with the ChatGPT macOS app. Set `CROSSVILLE_CODEX_BIN` if your CLI is elsewhere. It runs ephemerally with only this MCP connection configured, uses a separate disposable database and checks the returned evidence. No global MCP configuration is changed by this check.
-
-## What's connected
-
-- Real MCP transport, structured tool results and Codex model interaction.
-- Real local persistence, proposal/review transitions, version checks and immutable finalized packets.
-- Browser preview, local edits, source explanations, copy fallback and optional JSON export.
-
-The live Crossville site, real teammate identities, chat-history ingestion, semantic retrieval/conflict detection and automatic monitoring are not connected. See [the backend integration contract](docs/TEAM_BACKEND.md) for the concrete work needed next.
-
-## Project structure
+## Structure
 
 ```text
-src/fixture.js       Fictional project seed
-src/store.js         Local transactional SQLite store
-src/memory-store.js  Hosted transaction state
-worker/index.js      Private hosted adapter with D1 version checks
-src/domain.js        Selection, version differences and packet formatting
-src/service.js       Handoff and proposal/review rules
-src/tools.js         MCP tool schemas and shared dispatch
-src/mcp-server.js    Real MCP STDIO server
-src/web-server.js    Loopback-only browser server
-public/              Plain HTML, CSS and JavaScript preview
-tests/               Service, HTTP, MCP-client and hosted adapter tests
-scripts/             Checks, isolated demo and actual Codex verification
-docs/TEAM_BACKEND.md Live integration requirements
+worker/index.js          Sites identity, browser routes and shared dispatch
+worker/collaboration.js  D1 projects, membership, invitations, access checks
+worker/mcp.js            Stateless hosted MCP discovery and tool calls
+src/service.js           Handoff, proposal and review rules
+src/domain.js            Selection, version changes and packet formatting
+src/tools.js             Shared Zod tool schemas
+src/memory-store.js      Hosted unit of work
+src/store.js             Original local SQLite demo
+src/mcp-server.js        Local STDIO transport
+src/web-server.js        Original loopback single-user preview
+public/                 Plain HTML, CSS and JavaScript UI
+scripts/team-preview.js Local-only multi-account QA harness
+scripts/d1-local.js      Test/development SQLite D1 adapter
 ```
 
-JavaScript is intentional for this first prototype. The interfaces and Zod schemas can move to TypeScript without changing the tool names or user flow.
-
-## Local data and access
-
-The default database is `.data/workspace.sqlite`, ignored by Git. Both MCP and the preview resolve this path relative to the project, not the caller's working directory. `CROSSVILLE_DB` selects another local database for isolated testing.
-
-The preview binds only to `127.0.0.1`, validates Host/Origin, and requires a page-bound token for writes. That is local browser protection, not a substitute for production identity and membership checks. Do not expose this single-user preview on a public interface.
+`npm run build` bundles the Worker at `dist/server/index.js`. The Site manifest declares D1 and the `mcp` capability. Sites creates/refreshes the private personal plugin during publication. GitHub stores source; it is not the dynamic backend or an automatic deployment pipeline. No GitHub Actions deployment is configured.
 
 ## References
 
-- [Existing team setup guide](https://github.com/whale021140/crossville-context/blob/weekly/2026-11-02/docs/TEAM_CONNECTOR_SETUP.md)
-- [Existing maintained handoff](https://github.com/whale021140/crossville-context/blob/weekly/2026-11-02/docs/CONTEXT_HANDOFF.md)
+- [Existing Crossville connector guide](https://github.com/whale021140/crossville-context/blob/weekly/2026-11-02/docs/TEAM_CONNECTOR_SETUP.md)
+- [Existing Crossville handoff](https://github.com/whale021140/crossville-context/blob/weekly/2026-11-02/docs/CONTEXT_HANDOFF.md)
 - [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp)
-- [Official MCP TypeScript SDK v2](https://ts.sdk.modelcontextprotocol.io/v2/)
-
-## Hosted build
-
-`npm run build` bundles the existing UI and context service into `dist/server/index.js`. `.openai/hosting.json` identifies this Site and declares the DB binding; `drizzle/` contains the schema-only migration. Sites applies the migration during publication. Generated builds, local databases, verification logs, caches and credentials are excluded from Git. No GitHub Actions deployment or GitHub-to-Sites automatic deployment is configured.
